@@ -1,0 +1,252 @@
+---
+title: "Pset 2"
+author: "Maria Neely"
+date: "11/5/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load data}
+library(haven)
+data <- read.dta("~/Desktop/macs-405/problem-set-2/PSET 2 Files/conf06.dta")
+
+conf06 <- subset(data, data$nominee!="ALITO")
+vars <- c("vote", "nominee", "sameprty", "qual", "lackqual", "EuclDist2", "strngprs") # vector of vars
+conf <- conf06[vars] # retain only key vars from above object 
+conf$numvote <- as.numeric(conf$vote)-1 # from 1/2 to 0/1 
+conf$numstrngprs <- as.numeric(conf$strngprs)-1 # same as above
+
+```
+
+
+```{r 1.1, echo=FALSE}
+samples <- sample(1:nrow(conf), 
+                  nrow(conf)*0.8, 
+                  replace = FALSE)
+#and then you can index each group, (80% set and the inverse set) like this
+train <- conf[samples, ]
+test <- conf[-samples, ]
+
+```
+
+```{r 1.2}
+logit <- glm(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs,
+             data = conf,
+             family = binomial); summary(logit)
+
+#classify logit
+logit.probs <- predict(logit, 
+                       type = "response") 
+
+head(logit.probs)
+
+#based on our probabilities we need to clasify so that if observation is 0.5, make it a 0- else, make it a zero.
+logit.pred <- ifelse(logit.probs > 0.5, 1 ,0)
+
+# confusion matrix- columns are actual, and rows are predicted
+table<- table(logit.pred, conf$numvote)
+
+false_pos_rate <- (table[1]/table[4])*100
+
+false_neg_rate <- (table[3]/table[2])*100
+
+mean(logit.pred == conf$numvote)
+
+```
+
+Based on our regression, we see that all our independent variables, the squared distance between the senator’s ideal point and the nominee’s inferred ideal point (EuclDist2), the perceived qualifications of a nominee (qual), the lack of qualification of the nominee (lackqual),  a dummy variable indicating that the president is strong (strngprs), and a dummy variable indicating that the senator shares the president’s party affiliation (sameprty), are all extremely statistically significant, meaning all had p-values less than .05. We therefore can reject our null hypothesis, and say that there is a relationship between our variables and Senator’s voting "yes". This means that very rarely (less than 1% of the time), if there was no relationship, would we get similar results due to random sampling error. This is further substantiated by our confusion matrix. We see true positives to be most common with 3, 1988 instances (i.e. the predicted value is accurately predicted 3,198 times). Compared to the true positives, false positives are very rare, occurring only 244 times. Our false positive rate is 6.2 %. Similarly, we see that true negatives (200 occurrences) are much more common than false negatives (67), with a false negative rate at 27.4%.
+
+```{r 1.3}
+library(MASS)
+lda <- lda(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs,
+           data=conf)
+
+# inspect the model (don't use summary here)
+lda
+
+plot(lda)
+
+numvote <- test$numvote
+
+lda.pred <- predict(lda, newdata=test) 
+
+data.frame(lda.pred)[1:5,]
+
+# confusion matrix
+table <- table(lda.pred$class, numvote)
+
+false_pos_rate <- (table[1]/table[4])*100
+
+false_neg_rate <- (table[3]/table[2])*100
+
+# check the classification rate
+mean(lda.pred$class == numvote)
+```
+
+After performing our lda, we see that 12% of your training data corresponds to "no" votes (0) and 88% of your training data corresponds to "yes" votes (1).  Looking at the group means, we see that the qualifications of the nominee has the most influence on the "yes" votes and the "no" votes. This is reassuring. Finally, when comparing the coefficients of linear discriminants, we see that the best predictor of yes and no votes is EuclDist2, because it has the coefficient furthest from 0. Looking at the confusion matrix, we see a relatively low false positive rate (7.9%) and high false negative rate (42.9%). However, our classification rate is high, 91.9%, meaning our results are accurate. NEED TO INTERPRET PLOTS
+
+```{r 1.4}
+
+# A look beyond classification - conditional predicted probabilities
+logitmod3 <- glm(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs,
+                 family = binomial(link=logit), 
+                 data = conf)
+
+# CIs for predicted probabilities. This is creating out synthetic data: let liberal2 range from 20-80, and provide 2 columns 100 times.
+newdata2 <- with(conf, data.frame( EuclDist2 = rep(seq(from = 0, to = 1, length.out = 100),
+                                                      2), 
+                                  numstrngprs = rep(0:1, each = 100),
+                                  sameprty = rep(0:1, each = 100),
+                                  lackqual = mean(lackqual),
+                                  qual = mean(qual)))
+
+newdata3 <- cbind(newdata2, predict(logitmod3, 
+                                    newdata = newdata2, 
+                                    type = "link",
+                                    se = TRUE))
+# Add CIs
+newdata3 <- within(newdata3, {
+  PredictedProb <- plogis(fit)
+  LL <- plogis(fit - (1.96 * se.fit))
+  UL <- plogis(fit + (1.96 * se.fit))
+})
+
+#we are setting it to 1.96 because that is the statistical significance lelve
+
+# Recode usparty as a factor
+newdata3$usparty <- factor(newdata3$usparty, labels=c("No", "Yes"))
+
+# Plot predictions with CIs
+ggplot(newdata3, aes(x = liberal2, y = PredictedProb, color = usparty)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = LL, ymax = UL),
+                color="gray",
+                size=.3,
+                width=.2,
+                position = position_dodge(.9)) +
+  labs(x = "Court Liberalism",
+       y = "Probability of Granting Relief",
+       color = "U.S. is a Party") +
+  scale_fill_hue(breaks = c("No", "Yes"),
+                 labels = c("No",  "Yes")) +
+  ggtitle("The Conditional Effect of Liberalism on Granting Relief") +
+  theme_bw() +
+  theme(legend.justification = c(.7,1),
+        legend.position = c(.9,.3))
+
+
+
+```
+
+5. Reassuringly, we see in both or LDA and regression models that the squared distance between the senator’s ideal point and the nominee’s inferred ideal point (EuclDist2) is the variable most related to predicting the number of votes a SCOTUS nominee will receive. While there are other variables that impact predicting the number of votes a SCOTUS nominee will receive, our models find that ultimately Senator's take into account their own ideals, and how these match with the nominee's when voting on a SCOTUS nominee. 
+
+Interestingly, although empirically we know that the Supreme Court process has become extremely politicized, our data does not adequately reflect such extreme politicization. For example, in our regression model, the dummy variable representing if/if not the president is the same party as the Senator, we see the smallest relationship between sameprty and the number of votes for the nominee, with the slope between numvote and sameprty being  1.437e+00. However, we would expect to see very high relationship between sameprty and numvote given our empirical knowledge. Similarly, in our LDA classifier, the slope between numvote and sameprty is 0.5915900, a small slope compared to other variables' relationships with numvote. This suggests that despite that our model was proven to be largely accurate, there perhaps is something missing from our models. Perhaps, there is an intervening variable between sameprty and numvote that masks the true relationship between the two variables. This is an area of further investigation when assessing the validity of our models.
+
+```{r 1.6}
+logitmod3 <- glm(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs, 
+                 family = binomial(link=logit), 
+                 data = conf)
+
+# CIs for predicted probabilities. This is creating out synthetic data: let liberal2 range from 20-80, and provide 2 columns 100 times.
+newdata2 <- with(conf, data.frame(sameprty = rep(0:1, each = 100, 2), 
+                                  numstrngprs = rep(0:1, each = 100),
+                                  lackqual = mean(lackqual),
+                                  EuclDist2 = mean(EuclDist2),
+                                  qual = mean(qual))) 
+
+newdata3 <- cbind(newdata2, predict(logitmod3, 
+                                    newdata = newdata2, 
+                                    type = "link",
+                                    se = TRUE))
+# Add CIs
+newdata3 <- within(newdata3, {
+  PredictedProb <- plogis(fit)
+  LL <- plogis(fit - (1.96 * se.fit))
+  UL <- plogis(fit + (1.96 * se.fit))
+})
+
+#we are setting it to 1.96 because that is the statistical significance lelve
+
+# Recode usparty as a factor
+newdata3$usparty <- factor(newdata3$usparty, labels=c("No", "Yes"))
+
+# Plot predictions with CIs
+ggplot(newdata3, aes(x = liberal2, y = PredictedProb, color = usparty)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = LL, ymax = UL),
+                color="gray",
+                size=.3,
+                width=.2,
+                position = position_dodge(.9)) +
+  labs(x = "Court Liberalism",
+       y = "Probability of Granting Relief",
+       color = "U.S. is a Party") +
+  scale_fill_hue(breaks = c("No", "Yes"),
+                 labels = c("No",  "Yes")) +
+  ggtitle("The Conditional Effect of Liberalism on Granting Relief") +
+  theme_bw() +
+  theme(legend.justification = c(.7,1),
+        legend.position = c(.9,.3))
+#the error bars (and correspondingly, the uncertainty) are huge, 
+#indicating that there is no statistically distinguishable effect from when the US is a party or when it is not.
+
+```
+
+```{r load data}
+library(wnominate) # for algorithm
+library(pscl)
+
+house113 <- readKH(
+file.choose(), # locate the .ord file saved locally dtl=NULL,
+yea=c(1,2,3),
+nay=c(4,5,6),
+missing=c(7,8,9),
+notInLegis=0,
+desc="113th_House_Roll_Call_Data",
+debug=FALSE
+)
+
+```
+
+```{r 2.1}
+wnom_result <- wnominate(house113, 
+                         dims = 2,
+                         minvotes = 20,
+                         lop = 0.025,
+                         polarity = c(2,2))
+
+# store a few things for plotting
+wnom1 <- wnom_result$legislators$coord1D 
+wnom2 <- wnom_result$legislators$coord2D 
+party <- house113$legis.data$party 
+
+# custom plot
+plot(wnom1, wnom2,
+     main="113th United States House\n(W-NOMINATE)",
+     xlab="First Dimension (Ideology) \nD = Democrat, R = Republican, I = Independent",
+     ylab="Second Dimension (Race / Civil Rights)",
+     xlim=c(-1,1), ylim=c(-1,1), type="n")
+points(wnom1[party=="D"], wnom2[party=="D"], pch="D", col="gray15")
+points(wnom1[party=="R"], wnom2[party=="R"], pch="R", col="gray30")
+points(wnom1[party=="Indep"], wnom2[party=="Indep"], pch="I", col="red")
+
+```
+
+After running the wnom algorithm, we see that the 113th Congress was polarized, with a clear divide in ideology between the Democrats and the Republicans. We also see that Republicans are much more similar in their views regarding ideology, given the dense cluster of Republicans between 0.5-1.0 on ideology (minus the two outliers between 0 and 0.5 on ideology) and less similar in their views on race. Conversely, we see that the Democrats have a larger spread of ideological views, given the wide spread of democrats across ideology from 0.0 to -1.0, but a smaller spread of views on race, given the dense clustering between -0.5 and 0.5. Looking beyond the plot, we see that the results from the wnom algorithm are fairly accurate, with an accuracy rate of 94.3% of yeas predictions correct and 92.8% of the nays predictions correct.
+
+
+```{r 2.2}
+#scree plots
+# canned plot(s)
+plot(wnom_result)
+
+#apre
+wnom_result$fits
+```
+
+Let us now consider the fit of the algorithm. From the scree plot, we see that the first dimension fits the data extremely well, given its high eigenvalue. The rest of the dimensions, particularly the second dimension, do not have as good of a fit for our data. The APRE rates in each dimension are strong, given they are greater than .4. The APRE rates show that there is a 77.6% reduction of error for predicting the roll call votes in the first dimension, and a 79.8% reduction of error for predicting the roll call votes in the second dimension.
+
