@@ -6,12 +6,17 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
+library(tinytex)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+---
+Part 1
+---
 
-```{r load data}
+```{r load data part 1}
 library(haven)
+library(foreign)
 data <- read.dta("~/Desktop/macs-405/problem-set-2/PSET 2 Files/conf06.dta")
 
 conf06 <- subset(data, data$nominee!="ALITO")
@@ -65,10 +70,9 @@ library(MASS)
 lda <- lda(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs,
            data=conf)
 
-# inspect the model (don't use summary here)
+# inspect the model
 lda
 
-plot(lda)
 
 numvote <- test$numvote
 
@@ -79,30 +83,30 @@ data.frame(lda.pred)[1:5,]
 # confusion matrix
 table <- table(lda.pred$class, numvote)
 
-false_pos_rate <- (table[1]/table[4])*100
+table
 
-false_neg_rate <- (table[3]/table[2])*100
+false_pos_rate <- (table[1]/(table[4] + table[1])*100)
+
+false_neg_rate <- (table[3]/(table[2] + table[3])*100)
 
 # check the classification rate
 mean(lda.pred$class == numvote)
 ```
 
-After performing our lda, we see that 12% of your training data corresponds to "no" votes (0) and 88% of your training data corresponds to "yes" votes (1).  Looking at the group means, we see that the qualifications of the nominee has the most influence on the "yes" votes and the "no" votes. This is reassuring. Finally, when comparing the coefficients of linear discriminants, we see that the best predictor of yes and no votes is EuclDist2, because it has the coefficient furthest from 0. Looking at the confusion matrix, we see a relatively low false positive rate (7.9%) and high false negative rate (42.9%). However, our classification rate is high, 91.9%, meaning our results are accurate. NEED TO INTERPRET PLOTS
+After performing our lda, we see that 12% of your training data corresponds to "no" votes (0) and 88% of your training data corresponds to "yes" votes (1).  Looking at the group means, we see that the qualifications of the nominee has the most influence on the "yes" votes and the "no" votes. This is reassuring. Finally, when comparing the coefficients of linear discriminants, we see that the best predictor of yes and no votes is EuclDist2, because it has the coefficient furthest from 0. As EuclDist2 increases, the likelihood of a yes vote decreases. Looking at the confusion matrix, we see a relatively low false positive rate (7.3%) and high false negative rate (30%). However, our classification rate is high, 91.9%, meaning our results are accurate.
 
 ```{r 1.4}
-
+library(ggplot2)
 # A look beyond classification - conditional predicted probabilities
-logitmod3 <- glm(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs,
+logitmod3 <- glm(numvote ~ EuclDist2 + qual + sameprty + numstrngprs,
                  family = binomial(link=logit), 
                  data = conf)
 
 # CIs for predicted probabilities. This is creating out synthetic data: let liberal2 range from 20-80, and provide 2 columns 100 times.
-newdata2 <- with(conf, data.frame( EuclDist2 = rep(seq(from = 0, to = 1, length.out = 100),
-                                                      2), 
-                                  numstrngprs = rep(0:1, each = 100),
-                                  sameprty = rep(0:1, each = 100),
-                                  lackqual = mean(lackqual),
-                                  qual = mean(qual)))
+newdata2 <- with(conf, data.frame(qual = rep(seq(from = 0, to = 1, length.out = 100)),
+                                  numstrngprs = mean(numstrngprs),
+                                  sameprty = mean(sameprty),
+                                  EuclDist2 = mean(EuclDist2)))
 
 newdata3 <- cbind(newdata2, predict(logitmod3, 
                                     newdata = newdata2, 
@@ -115,48 +119,43 @@ newdata3 <- within(newdata3, {
   UL <- plogis(fit + (1.96 * se.fit))
 })
 
-#we are setting it to 1.96 because that is the statistical significance lelve
-
-# Recode usparty as a factor
-newdata3$usparty <- factor(newdata3$usparty, labels=c("No", "Yes"))
 
 # Plot predictions with CIs
-ggplot(newdata3, aes(x = liberal2, y = PredictedProb, color = usparty)) +
+ggplot(newdata3, aes(x = qual, y = PredictedProb)) +
   geom_line() +
   geom_errorbar(aes(ymin = LL, ymax = UL),
                 color="gray",
                 size=.3,
                 width=.2,
                 position = position_dodge(.9)) +
-  labs(x = "Court Liberalism",
-       y = "Probability of Granting Relief",
-       color = "U.S. is a Party") +
+  labs(x = "Percieved Qualifications of Nominee",
+       y = "Probability of Voting Yes") +
   scale_fill_hue(breaks = c("No", "Yes"),
                  labels = c("No",  "Yes")) +
-  ggtitle("The Conditional Effect of Liberalism on Granting Relief") +
+  ggtitle("The Conditional Effect of Qualifications on Voting Yes") +
   theme_bw() +
   theme(legend.justification = c(.7,1),
-        legend.position = c(.9,.3))
-
-
-
+        legend.position = c(.9,.3)) + ylim(0,1)
 ```
 
-5. Reassuringly, we see in both or LDA and regression models that the squared distance between the senator’s ideal point and the nominee’s inferred ideal point (EuclDist2) is the variable most related to predicting the number of votes a SCOTUS nominee will receive. While there are other variables that impact predicting the number of votes a SCOTUS nominee will receive, our models find that ultimately Senator's take into account their own ideals, and how these match with the nominee's when voting on a SCOTUS nominee. 
+Our graph of "The Conditional Effect of Qualifications on Voting Yes" show us that as the perceived qualifications of the nominee increase, the probability a Senator votes yes also increases. Notably, this happens in a non-linear way, so once the perceived qualifications of the nominee are above around 0.5, the probability of voting yes does not increase by that much. From this graph we also see our model has more errors when perceived qualifications of the nominee are low.
 
-Interestingly, although empirically we know that the Supreme Court process has become extremely politicized, our data does not adequately reflect such extreme politicization. For example, in our regression model, the dummy variable representing if/if not the president is the same party as the Senator, we see the smallest relationship between sameprty and the number of votes for the nominee, with the slope between numvote and sameprty being  1.437e+00. However, we would expect to see very high relationship between sameprty and numvote given our empirical knowledge. Similarly, in our LDA classifier, the slope between numvote and sameprty is 0.5915900, a small slope compared to other variables' relationships with numvote. This suggests that despite that our model was proven to be largely accurate, there perhaps is something missing from our models. Perhaps, there is an intervening variable between sameprty and numvote that masks the true relationship between the two variables. This is an area of further investigation when assessing the validity of our models.
+Question 5. Reassuringly, we see in both our LDA and regression models that the squared distance between the senator’s ideal point and the nominee’s inferred ideal point (EuclDist2) is the variable most related to predicting the number of votes a SCOTUS nominee will receive. While there are other variables that impact predicting the number of votes a SCOTUS nominee will receive, our models find that ultimately Senator's take into account their own ideals, and how these match with the nominee's, impact their  votes on a SCOTUS nominee. 
+
+Interestingly, although empirically we know that the Supreme Court process has become extremely politicized, our data does not adequately reflect such extreme politicization. For example, in our regression model, the dummy variable representing if the president is the same party as the Senator, we see the smallest relationship between sameprty and the number of votes for the nominee, with the slope between numvote and sameprty being  1.437e+00. However, we would expect to see very high relationship between sameprty and numvote given our empirical knowledge. Similarly, in our LDA classifier, the slope between numvote and sameprty is 0.5915900, a small slope compared to other variables' relationships with numvote. This suggests that despite that our model was deemed accurate through error checks, there perhaps is something missing from our models. Perhaps, there is an intervening variable between sameprty and numvote that masks the true relationship between the two variables. This is an area of further investigation when assessing the validity of our models.
 
 ```{r 1.6}
-logitmod3 <- glm(numvote ~ EuclDist2 + qual + lackqual + sameprty + numstrngprs, 
+library(ggplot2)
+# A look beyond classification - conditional predicted probabilities
+logitmod3 <- glm(numvote ~ EuclDist2 + qual + sameprty + numstrngprs,
                  family = binomial(link=logit), 
                  data = conf)
 
 # CIs for predicted probabilities. This is creating out synthetic data: let liberal2 range from 20-80, and provide 2 columns 100 times.
-newdata2 <- with(conf, data.frame(sameprty = rep(0:1, each = 100, 2), 
-                                  numstrngprs = rep(0:1, each = 100),
-                                  lackqual = mean(lackqual),
-                                  EuclDist2 = mean(EuclDist2),
-                                  qual = mean(qual))) 
+newdata2 <- with(conf, data.frame(qual = rep(seq(from = 0, to = 1, length.out = 100),2),
+                                  numstrngprs = mean(numstrngprs),
+                                  sameprty = rep(0:1, each = 100),
+                                  EuclDist2 = mean(EuclDist2)))
 
 newdata3 <- cbind(newdata2, predict(logitmod3, 
                                     newdata = newdata2, 
@@ -169,39 +168,42 @@ newdata3 <- within(newdata3, {
   UL <- plogis(fit + (1.96 * se.fit))
 })
 
-#we are setting it to 1.96 because that is the statistical significance lelve
+newdata3$sameprty <- factor(newdata3$sameprty, labels = c("No", "Yes"))
 
-# Recode usparty as a factor
-newdata3$usparty <- factor(newdata3$usparty, labels=c("No", "Yes"))
 
 # Plot predictions with CIs
-ggplot(newdata3, aes(x = liberal2, y = PredictedProb, color = usparty)) +
+ggplot(newdata3, aes(x = qual, y = PredictedProb, color = sameprty)) +
   geom_line() +
   geom_errorbar(aes(ymin = LL, ymax = UL),
                 color="gray",
                 size=.3,
                 width=.2,
                 position = position_dodge(.9)) +
-  labs(x = "Court Liberalism",
-       y = "Probability of Granting Relief",
-       color = "U.S. is a Party") +
+  labs(x = "Percieved Qualifications of Nominee",
+       y = "Probability of Voting Yes",
+       color = "Nominee of the Same Party") +
   scale_fill_hue(breaks = c("No", "Yes"),
                  labels = c("No",  "Yes")) +
-  ggtitle("The Conditional Effect of Liberalism on Granting Relief") +
+  ggtitle("The Conditional Effect of Qualifications on Voting Yes") +
   theme_bw() +
   theme(legend.justification = c(.7,1),
-        legend.position = c(.9,.3))
-#the error bars (and correspondingly, the uncertainty) are huge, 
-#indicating that there is no statistically distinguishable effect from when the US is a party or when it is not.
+        legend.position = c(.9,.3)) + ylim(0,1)
 
 ```
 
-```{r load data}
-library(wnominate) # for algorithm
+From this graph, we once again see that for both those of the same party as the nominee and different party than the nominee, as perceived qualifications of the nominee increases the probability the Senator votes yes also increases. However, we see that when there is a nominee of the same party as the voting Senator, the probability of voting yes is already quite high (over 0.6), and therefore perceived qualifications of the nominee has less of an effect on probability of voting yes. For Senator's not in the same party as the nominee, perceived qualifications of the nominee have a much higher effect on the probability to vote yes. Interestingly, once perceived qualifications of a nominee are high (above 0.8), the probability to vote yes converges regardless of if the Senator is in the same party as the nominee or not.
+
+---
+Part 2
+---
+
+```{r load data part 2}
+library(wnominate) 
 library(pscl)
 
+
 house113 <- readKH(
-file.choose(), # locate the .ord file saved locally dtl=NULL,
+"/Users/owner/Desktop/macs-405/problem-set-2/PSET 2 FILES/hou113kh.ord",
 yea=c(1,2,3),
 nay=c(4,5,6),
 missing=c(7,8,9),
@@ -209,6 +211,7 @@ notInLegis=0,
 desc="113th_House_Roll_Call_Data",
 debug=FALSE
 )
+
 
 ```
 
@@ -248,5 +251,11 @@ plot(wnom_result)
 wnom_result$fits
 ```
 
-Let us now consider the fit of the algorithm. From the scree plot, we see that the first dimension fits the data extremely well, given its high eigenvalue. The rest of the dimensions, particularly the second dimension, do not have as good of a fit for our data. The APRE rates in each dimension are strong, given they are greater than .4. The APRE rates show that there is a 77.6% reduction of error for predicting the roll call votes in the first dimension, and a 79.8% reduction of error for predicting the roll call votes in the second dimension.
+Let us now consider the fit of the algorithm. From the scree plot, we see that the first dimension fits the data extremely well, given its high eigenvalue. The second dimension fits slightly better than the rest of the dimensions, but still does not have a particularly good of a fit for our data. Similarly, most of the cutting lines cut at 0 degrees and 90 degrees, indicating the first dimension is a good fit for our data.
+
+The APRE rates show that there is a 77.6% reduction of error for predicting the roll call votes in the first dimension, and a 79.8% reduction of error for predicting the roll call votes in the second dimension. The APRE rates in each dimension are strong, given they are greater than 0.4. The GMP also shows both dimensions are accurate for predicting roll call votes, with high values close to 1. 
+
+Question 3. There are three main methods for unfolding binary data: NOMINATE, IRT and Optimal Classification. These methods differ in their assumptions and the way they calculate errors. For example, NOMINATE and IRT use a random utility model, while Optimal Classification uses quadratic utility. Under a random utility model, when the Senator’s move away from their ideal point, they lose lots of utility, whereas under the quadratic utility model, when the Senator’s move away from their ideal point their loss of utility is less severe. Also, NOMINATE and IRT treat voting as probabilistic, while Optimal Classification does not treat voting probabilistically. In terms of politics, NOMINATE and IRT seem to be better for more controversial votes, when there are dramatic changes in utility. Conversely, Optimal Classification may better capture less controversial votes, as there is less dramatic change in utility over voting changes.   
+
+
 
